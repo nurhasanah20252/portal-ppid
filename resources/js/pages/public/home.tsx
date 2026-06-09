@@ -19,12 +19,22 @@ import { trackEvent } from '@/lib/tracking';
 import type { Faq, InformasiPublik, StatistikDashboard } from '@/types/ppid';
 
 interface Props {
-    statistik: StatistikDashboard;
-    informasiTerbaru: InformasiPublik[];
-    faqPopuler: Faq[];
+    statistik?: StatistikDashboard;
+    informasiTerbaru?: InformasiPublik[];
+    faqPopuler?: Faq[];
 }
 
-export default function Home({ statistik, informasiTerbaru, faqPopuler }: Props) {
+export default function Home({
+    statistik = {
+        total_permohonan_bulan_ini: 0,
+        sedang_diproses: 0,
+        selesai_bulan_ini: 0,
+        rata_rata_waktu_respon_hari: 0,
+        permohonan_per_bulan: [],
+    },
+    informasiTerbaru = [],
+    faqPopuler = [],
+}: Props) {
     return (
         <>
             <Head title="Beranda">

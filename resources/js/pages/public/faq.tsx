@@ -5,10 +5,10 @@ import { trackEvent } from '@/lib/tracking';
 import type { Faq } from '@/types/ppid';
 
 interface Props {
-    faqs: Faq[];
+    faqs?: Faq[];
 }
 
-export default function FaqIndex({ faqs }: Props) {
+export default function FaqIndex({ faqs = [] }: Props) {
     return (
         <>
             <Head title="Pertanyaan Umum (FAQ)" />

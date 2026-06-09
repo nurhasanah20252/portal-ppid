@@ -17,15 +17,18 @@ const tabs: Array<{ key: KategoriInformasi | 'semua'; label: string }> = [
 ];
 
 interface Props {
-    informasi: PaginatedResponse<InformasiPublik>;
-    filters: {
+    informasi?: PaginatedResponse<InformasiPublik>;
+    filters?: {
         kategori?: KategoriInformasi;
         tahun?: number;
         search?: string;
     };
 }
 
-export default function InformasiPublikIndex({ informasi, filters }: Props) {
+export default function InformasiPublikIndex({
+    informasi = { items: [], pagination: { current_page: 1, last_page: 1, per_page: 10, total: 0 } },
+    filters = {},
+}: Props) {
     const [activeTab, setActiveTab] = useState<KategoriInformasi | 'semua'>(
         filters.kategori ?? 'semua',
     );
