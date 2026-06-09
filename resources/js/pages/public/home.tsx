@@ -265,6 +265,3 @@ export default function Home({
         </>
     );
 }
-
-// Layout: menggunakan public layout via naming convention 'public/*'
-Home.layout = 'public';
