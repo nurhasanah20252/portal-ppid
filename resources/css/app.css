@@ -26,6 +26,7 @@
     --color-emas-light: #FFD54F;
     --color-orange: #F57C00;
     --color-orange-light: #EF6C00;
+    --color-orange-dark: #BF360C;
     --color-ungu: #6A1B9A;
     --color-ungu-light: #7B1FA2;
 
@@ -90,7 +91,7 @@
     --secondary: oklch(0.97 0 0);
     --secondary-foreground: oklch(0.205 0 0);
     --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
+    --muted-foreground: oklch(0.545 0 0);
     --accent: oklch(0.97 0 0);
     --accent-foreground: oklch(0.205 0 0);
     --destructive: oklch(0.577 0.245 27.325);
@@ -157,6 +158,12 @@
     body {
         @apply bg-background text-foreground;
     }
+
+    /* Aksesibilitas: Focus outline emas 2px pada semua elemen interaktif (Req 17.1) */
+    *:focus-visible {
+        outline: 2px solid var(--color-emas);
+        outline-offset: 2px;
+    }
 }
 
 /* Animasi untuk micro-interactions (sesuai UX.md) */
@@ -205,6 +212,37 @@
     background: linear-gradient(90deg, #e0e0e0 25%, #f0f0f0 50%, #e0e0e0 75%);
     background-size: 200% 100%;
     animation: shimmer 1.5s infinite;
+}
+
+/* Animasi accordion/collapsible (Radix UI) */
+@keyframes collapsible-down {
+    from {
+        height: 0;
+        opacity: 0;
+    }
+    to {
+        height: var(--radix-collapsible-content-height);
+        opacity: 1;
+    }
+}
+
+@keyframes collapsible-up {
+    from {
+        height: var(--radix-collapsible-content-height);
+        opacity: 1;
+    }
+    to {
+        height: 0;
+        opacity: 0;
+    }
+}
+
+@utility animate-collapsible-down {
+    animation: collapsible-down 0.3s ease-out;
+}
+
+@utility animate-collapsible-up {
+    animation: collapsible-up 0.2s ease-out;
 }
 
 /* Font heading menggunakan Poppins */

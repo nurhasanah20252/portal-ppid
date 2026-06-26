@@ -1,74 +1,83 @@
 import { Head, Link, router } from '@inertiajs/react';
-import { Search, Download, FileText, Calendar, ArrowLeft, FolderOpen } from 'lucide-react';
+import { Download, FileText, Calendar, ArrowLeft, FolderOpen } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
+import FilterBar from '@/components/filter-bar';
 import { trackEvent } from '@/lib/tracking';
 import { cn } from '@/lib/utils';
 import type { InformasiPublik, KategoriInformasi, PaginatedResponse } from '@/types/ppid';
-
-/** Konfigurasi tab kategori */
-const tabs: Array<{ key: KategoriInformasi | 'semua'; label: string }> = [
-    { key: 'semua', label: 'Semua' },
-    { key: 'berkala', label: 'Berkala' },
-    { key: 'serta_merta', label: 'Serta Merta' },
-    { key: 'setiap_saat', label: 'Setiap Saat' },
-];
 
 interface Props {
     informasi?: PaginatedResponse<InformasiPublik>;
     filters?: {
         kategori?: KategoriInformasi;
         tahun?: number;
-        search?: string;
     };
+    tahunList?: number[];
+}
+
+/**
+ * Skeleton loading untuk item informasi publik.
+ * Ditampilkan saat data sedang dimuat (navigasi filter).
+ */
+function InformasiSkeleton() {
+    return (
+        <div className="space-y-3" aria-busy="true" aria-label="Memuat data informasi publik">
+            {Array.from({ length: 4 }).map((_, i) => (
+                <Card key={i} className="border-gray-100">
+                    <CardContent className="flex items-start gap-4 pt-4 sm:pt-6">
+                        <Skeleton className="h-10 w-10 shrink-0 rounded-lg" />
+                        <div className="flex-1 space-y-2">
+                            <Skeleton className="h-4 w-3/4" />
+                            <div className="flex gap-2">
+                                <Skeleton className="h-4 w-16 rounded" />
+                                <Skeleton className="h-4 w-12 rounded" />
+                            </div>
+                            <Skeleton className="h-3 w-full" />
+                        </div>
+                        <Skeleton className="h-10 w-10 shrink-0 rounded-lg" />
+                    </CardContent>
+                </Card>
+            ))}
+        </div>
+    );
 }
 
 export default function InformasiPublikIndex({
     informasi = { items: [], pagination: { current_page: 1, last_page: 1, per_page: 10, total: 0 } },
     filters = {},
+    tahunList = [],
 }: Props) {
-    const [activeTab, setActiveTab] = useState<KategoriInformasi | 'semua'>(
-        filters.kategori ?? 'semua',
-    );
-    const [searchQuery, setSearchQuery] = useState(filters.search ?? '');
+    // State untuk mendeteksi apakah sedang loading (navigasi filter)
+    const [isLoading, setIsLoading] = useState(false);
 
-    const handleTabChange = (tab: KategoriInformasi | 'semua') => {
-        setActiveTab(tab);
-        const params = new URLSearchParams();
+    /**
+     * Menangani perubahan filter dari komponen FilterBar.
+     * Menggunakan Inertia router.get() dengan preserveState dan preserveScroll.
+     */
+    function handleFilterChange(newFilters: { kategori?: KategoriInformasi; tahun?: number }) {
+        const params: Record<string, string> = {};
 
-        if (tab !== 'semua') {
-            params.set('kategori', tab);
+        if (newFilters.kategori) {
+            params.kategori = newFilters.kategori;
         }
 
-        if (filters.tahun) {
-            params.set('tahun', String(filters.tahun));
+        if (newFilters.tahun) {
+            params.tahun = String(newFilters.tahun);
         }
 
-        router.get(`/informasi-publik?${params.toString()}`);
-    };
+        // Navigasi dengan Inertia router tanpa full page reload
+        router.get('/informasi-publik', params, {
+            preserveState: true,
+            preserveScroll: true,
+            onStart: () => setIsLoading(true),
+            onFinish: () => setIsLoading(false),
+        });
+    }
 
-    const handleSearch = (e: React.FormEvent) => {
-        e.preventDefault();
-        const params = new URLSearchParams();
-
-        if (activeTab !== 'semua') {
-            params.set('kategori', activeTab);
-        }
-
-        if (searchQuery) {
-            params.set('search', searchQuery);
-        }
-
-        if (filters.tahun) {
-            params.set('tahun', String(filters.tahun));
-        }
-
-        router.get(`/informasi-publik?${params.toString()}`);
-    };
-
-    /** Label kategori */
+    /** Label kategori untuk tampilan */
     const kategoriLabels: Record<string, string> = {
         berkala: 'Berkala',
         serta_merta: 'Serta Merta',
@@ -102,42 +111,18 @@ export default function InformasiPublikIndex({
                     </p>
                 </div>
 
-                {/* Tab kategori */}
-                <div className="mb-6 flex flex-wrap items-center gap-2">
-                    {tabs.map((tab) => (
-                        <button
-                            key={tab.key}
-                            onClick={() => handleTabChange(tab.key)}
-                            className={cn(
-                                'rounded-lg px-4 py-2 text-sm font-medium transition-colors',
-                                activeTab === tab.key
-                                    ? 'bg-orange text-white shadow-sm'
-                                    : 'bg-white text-gray-600 hover:bg-gray-100',
-                            )}
-                        >
-                            {tab.label}
-                        </button>
-                    ))}
-                </div>
+                {/* Filter bar: kategori tabs + dropdown tahun */}
+                <FilterBar
+                    filters={filters}
+                    tahunList={tahunList}
+                    onFilterChange={handleFilterChange}
+                    className="mb-6"
+                />
 
-                {/* Pencarian */}
-                <form onSubmit={handleSearch} className="mb-6 flex gap-2">
-                    <div className="relative flex-1">
-                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                        <Input
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            placeholder="Cari berdasarkan judul, nomor perkara..."
-                            className="pl-10"
-                        />
-                    </div>
-                    <Button type="submit" className="bg-hijau text-white hover:bg-hijau-light">
-                        Cari
-                    </Button>
-                </form>
-
-                {/* Daftar informasi */}
-                {informasi.items.length > 0 ? (
+                {/* Daftar informasi dengan skeleton loading */}
+                {isLoading ? (
+                    <InformasiSkeleton />
+                ) : informasi.items.length > 0 ? (
                     <div className="space-y-3">
                         {informasi.items.map((item) => (
                             <Card
@@ -148,7 +133,7 @@ export default function InformasiPublikIndex({
                                     <div className="rounded-lg bg-hijau/10 p-2.5 text-hijau">
                                         <FileText className="h-5 w-5" />
                                     </div>
-                                    <div className="flex-1 min-w-0">
+                                    <div className="min-w-0 flex-1">
                                         <h3 className="font-heading text-sm font-semibold text-gray-800 group-hover:text-hijau sm:text-base">
                                             {item.judul}
                                         </h3>
@@ -157,7 +142,9 @@ export default function InformasiPublikIndex({
                                                 {kategoriLabels[item.kategori] ?? item.kategori}
                                             </span>
                                             {item.sub_kategori && (
-                                                <span className="text-gray-400">&bull; {item.sub_kategori}</span>
+                                                <span className="text-gray-400">
+                                                    &bull; {item.sub_kategori}
+                                                </span>
                                             )}
                                             <span className="flex items-center gap-1">
                                                 <Calendar className="h-3 w-3" />
@@ -176,10 +163,15 @@ export default function InformasiPublikIndex({
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             onClick={() =>
-                                                trackEvent('download', 'download_dokumen', item.sub_kategori, {
-                                                    doc_type: item.sub_kategori,
-                                                    doc_id: item.id,
-                                                })
+                                                trackEvent(
+                                                    'download',
+                                                    'download_dokumen',
+                                                    item.sub_kategori,
+                                                    {
+                                                        doc_type: item.sub_kategori,
+                                                        doc_id: item.id,
+                                                    },
+                                                )
                                             }
                                             className="shrink-0 rounded-lg bg-hijau/10 p-2.5 text-hijau transition-colors hover:bg-hijau hover:text-white"
                                             aria-label={`Unduh ${item.judul}`}
@@ -202,14 +194,29 @@ export default function InformasiPublikIndex({
                     </Card>
                 )}
 
-                {/* Pagination sederhana */}
+                {/* Pagination */}
                 {informasi.pagination.last_page > 1 && (
                     <div className="mt-8 flex items-center justify-center gap-2">
-                        {Array.from({ length: informasi.pagination.last_page }, (_, i) => i + 1).map(
-                            (page) => (
+                        {Array.from(
+                            { length: informasi.pagination.last_page },
+                            (_, i) => i + 1,
+                        ).map((page) => {
+                            // Bangun query params untuk pagination
+                            const params = new URLSearchParams();
+                            params.set('page', String(page));
+                            if (filters.kategori) {
+                                params.set('kategori', filters.kategori);
+                            }
+                            if (filters.tahun) {
+                                params.set('tahun', String(filters.tahun));
+                            }
+
+                            return (
                                 <Link
                                     key={page}
-                                    href={`/informasi-publik?page=${page}${activeTab !== 'semua' ? `&kategori=${activeTab}` : ''}`}
+                                    href={`/informasi-publik?${params.toString()}`}
+                                    preserveState
+                                    preserveScroll
                                     className={cn(
                                         'flex h-9 w-9 items-center justify-center rounded-md text-sm font-medium transition-colors',
                                         page === informasi.pagination.current_page
@@ -219,8 +226,8 @@ export default function InformasiPublikIndex({
                                 >
                                     {page}
                                 </Link>
-                            ),
-                        )}
+                            );
+                        })}
                     </div>
                 )}
             </section>

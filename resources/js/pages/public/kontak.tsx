@@ -157,14 +157,14 @@ export default function KontakIndex() {
                             <div className="mt-4 flex flex-col items-center justify-center gap-3 sm:flex-row">
                                 <a
                                     href="tel:0542-123456"
-                                    className="inline-flex items-center gap-2 rounded-lg bg-hijau px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-hijau-light"
+                                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-hijau px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-hijau-light sm:w-auto"
                                 >
                                     <Phone className="h-4 w-4" />
                                     Telepon Sekarang
                                 </a>
                                 <a
                                     href="mailto:ppid@pa-penajam.go.id"
-                                    className="inline-flex items-center gap-2 rounded-lg border border-ungu px-6 py-2.5 text-sm font-medium text-ungu transition-colors hover:bg-ungu/10"
+                                    className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-ungu px-6 py-2.5 text-sm font-medium text-ungu transition-colors hover:bg-ungu/10 sm:w-auto"
                                 >
                                     <Mail className="h-4 w-4" />
                                     Kirim Email

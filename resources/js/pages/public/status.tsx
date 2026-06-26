@@ -3,6 +3,7 @@ import { Search, ArrowLeft, Ticket, Clock, FileText, AlertTriangle, CheckCircle 
 import { useState } from 'react';
 import InputError from '@/components/input-error';
 import StatusBadge from '@/components/status-badge';
+import TimelineStatus from '@/components/timeline-status';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -35,19 +36,16 @@ export default function StatusIndex() {
                     trackEvent('status_check', 'search_tiket', 'not_found');
                 }
             },
-            onError: () => {
+            onError: (responseErrors) => {
                 setNotFound(true);
-                trackEvent('status_check', 'search_tiket', 'not_found');
+                // Bedakan error validasi (404/422) dengan error server sebenarnya
+                if (Object.keys(responseErrors).length > 0) {
+                    trackEvent('status_check', 'search_tiket', 'not_found');
+                } else {
+                    trackEvent('error', 'api_error', '/status/check');
+                }
             },
         });
-    };
-
-    /** Label status untuk ditampilkan */
-    const statusLabels: Record<string, string> = {
-        baru: 'Baru',
-        diproses: 'Diproses',
-        selesai: 'Selesai',
-        ditolak: 'Ditolak',
     };
 
     return (
@@ -123,7 +121,7 @@ export default function StatusIndex() {
                         <CardContent className="flex items-start gap-3 pt-6">
                             <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-orange" />
                             <div>
-                                <p className="font-medium text-orange">Tiket tidak ditemukan.</p>
+                                <p className="font-medium text-orange-dark">Tiket tidak ditemukan.</p>
                                 <p className="mt-1 text-sm text-gray-600">
                                     Pastikan nomor tiket benar (format: PPID-YYYYMMDD-XXXX).
                                     <br />
@@ -189,43 +187,13 @@ export default function StatusIndex() {
                                 )}
                             </dl>
 
-                            {/* Riwayat status */}
-                            {result.riwayat.length > 0 && (
-                                <div className="mt-6 border-t border-gray-100 pt-4">
-                                    <h4 className="mb-3 font-heading text-sm font-semibold text-gray-700">
-                                        Riwayat Proses
-                                    </h4>
-                                    <div className="relative space-y-3 pl-4">
-                                        {/* Garis timeline */}
-                                        <div className="absolute bottom-0 left-[7px] top-0 w-0.5 bg-gray-200" />
-
-                                        {result.riwayat.map((log, index) => (
-                                            <div key={log.id ?? index} className="relative flex items-start gap-3">
-                                                <div
-                                                    className={`relative z-10 mt-1 h-3.5 w-3.5 shrink-0 rounded-full border-2 ${
-                                                        index === 0
-                                                            ? 'border-hijau bg-hijau'
-                                                            : 'border-gray-300 bg-white'
-                                                    }`}
-                                                />
-                                                <div>
-                                                    <p className="text-xs text-gray-400">
-                                                        {log.created_at}
-                                                    </p>
-                                                    <p className="text-sm font-medium text-gray-700">
-                                                        {statusLabels[log.status_baru] ?? log.status_baru}
-                                                        {log.catatan && (
-                                                            <span className="ml-1 font-normal text-gray-500">
-                                                                &ndash; {log.catatan}
-                                                            </span>
-                                                        )}
-                                                    </p>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
+                            {/* Riwayat status menggunakan komponen TimelineStatus */}
+                            <div className="mt-6 border-t border-gray-100 pt-4">
+                                <h4 className="mb-3 font-heading text-sm font-semibold text-gray-700">
+                                    Riwayat Proses
+                                </h4>
+                                <TimelineStatus riwayat={result.riwayat} />
+                            </div>
                         </CardContent>
                     </Card>
                 )}

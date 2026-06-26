@@ -1,19 +1,31 @@
 import { Head, useForm } from '@inertiajs/react';
 import { ArrowLeft, ArrowRight, Send, CheckCircle, User, FileText, Shield } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
+import FileUpload from '@/components/file-upload';
 import InputError from '@/components/input-error';
+import ProgressBar from '@/components/progress-bar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { trackEvent } from '@/lib/tracking';
+import { validateField } from '@/lib/validation';
 import type { JenisInformasi } from '@/types/ppid';
 
 /** Total langkah form permohonan */
 const TOTAL_STEPS = 3;
 
+/** Label untuk setiap langkah di ProgressBar */
+const STEP_LABELS = ['Data Pemohon', 'Detail Informasi', 'Persetujuan'];
+
+/** Tipe state error validasi inline */
+type FieldErrors = Record<string, string>;
+
 export default function PermohonanCreate() {
     const [step, setStep] = useState(1);
+
+    // State error validasi inline (client-side)
+    const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
 
     const { data, setData, post, processing, errors } = useForm({
         nik: '',
@@ -35,61 +47,247 @@ export default function PermohonanCreate() {
     const [submitted, setSubmitted] = useState(false);
     const [tiketNo, setTiketNo] = useState('');
 
-    /** Validasi per langkah */
-    const validateStep = (currentStep: number): boolean => {
-        switch (currentStep) {
-            case 1:
-                return (
-                    data.nik.length === 16 &&
-                    data.nama_lengkap.length >= 3 &&
-                    data.email.includes('@') &&
-                    data.no_hp.length >= 10 &&
-                    data.alamat.length > 0
-                );
-            case 2:
-                return (
-                    data.jenis_informasi.length > 0 &&
-                    data.tujuan.length > 0 &&
-                    data.uraian_informasi.length >= 10
-                );
-            case 3:
-                return data.setuju_data && data.setuju_dokumen;
-            default:
-                return false;
+    /**
+     * Validasi satu field saat blur dan simpan error ke state lokal.
+     * Mengembalikan true jika field valid.
+     */
+    const handleBlur = useCallback(
+        (fieldName: string, value: unknown) => {
+            const result = validateField(fieldName, value);
+
+            setFieldErrors((prev) => {
+                if (result.valid) {
+                    const updated = { ...prev };
+
+                    delete updated[fieldName];
+
+                    return updated;
+                }
+
+                return { ...prev, [fieldName]: result.message };
+            });
+
+            return result.valid;
+        },
+        [],
+    );
+
+    /**
+     * Mendapatkan pesan error gabungan (prioritas: server error > client error).
+     * Server error dari useForm errors memiliki prioritas lebih tinggi.
+     */
+    const getFieldError = useCallback(
+        (fieldName: string): string => {
+            // Error dari server (422) diprioritaskan
+            if (errors[fieldName as keyof typeof errors]) {
+                return errors[fieldName as keyof typeof errors] as string;
+            }
+
+            // Error dari validasi client-side
+            return fieldErrors[fieldName] ?? '';
+        },
+        [errors, fieldErrors],
+    );
+
+    /** Cek apakah field sedang dalam keadaan error */
+    const hasError = useCallback(
+        (fieldName: string): boolean => {
+            return !!getFieldError(fieldName);
+        },
+        [getFieldError],
+    );
+
+    /**
+     * Validasi field wajib yang tidak memiliki rule khusus di validation.ts.
+     * Digunakan untuk field alamat, kota, provinsi, tujuan.
+     */
+    const handleRequiredBlur = useCallback(
+        (fieldName: string, value: string, message: string) => {
+            setFieldErrors((prev) => {
+                if (value.trim()) {
+                    const updated = { ...prev };
+
+                    delete updated[fieldName];
+
+                    return updated;
+                }
+
+                return { ...prev, [fieldName]: message };
+            });
+        },
+        [],
+    );
+
+    /**
+     * Validasi semua field pada langkah tertentu.
+     * Mengembalikan true jika semua field valid.
+     */
+    const validateAllFieldsInStep = (currentStep: number): boolean => {
+        let allValid = true;
+        const newErrors: FieldErrors = { ...fieldErrors };
+
+        if (currentStep === 1) {
+            // Validasi field langkah 1
+            const step1Fields: Array<{ name: string; value: unknown }> = [
+                { name: 'nik', value: data.nik },
+                { name: 'namaLengkap', value: data.nama_lengkap },
+                { name: 'email', value: data.email },
+                { name: 'noHp', value: data.no_hp },
+            ];
+
+            for (const field of step1Fields) {
+                const result = validateField(field.name, field.value);
+
+                if (!result.valid) {
+                    newErrors[field.name] = result.message;
+                    allValid = false;
+                } else {
+                    delete newErrors[field.name];
+                }
+            }
+
+            // Validasi field wajib tanpa rule khusus di validation.ts
+            if (!data.alamat.trim()) {
+                newErrors['alamat'] = 'Alamat wajib diisi';
+                allValid = false;
+            } else {
+                delete newErrors['alamat'];
+            }
+
+            if (!data.kota.trim()) {
+                newErrors['kota'] = 'Kota/Kabupaten wajib diisi';
+                allValid = false;
+            } else {
+                delete newErrors['kota'];
+            }
+
+            if (!data.provinsi.trim()) {
+                newErrors['provinsi'] = 'Provinsi wajib diisi';
+                allValid = false;
+            } else {
+                delete newErrors['provinsi'];
+            }
+
+            // Validasi KTP file jika ada
+            if (data.ktp_file) {
+                const ktpResult = validateField('ktpFile', data.ktp_file);
+
+                if (!ktpResult.valid) {
+                    newErrors['ktpFile'] = ktpResult.message;
+                    allValid = false;
+                } else {
+                    delete newErrors['ktpFile'];
+                }
+            }
         }
+
+        if (currentStep === 2) {
+            // Validasi field langkah 2
+            if (!data.jenis_informasi) {
+                newErrors['jenis_informasi'] = 'Jenis informasi wajib dipilih';
+                allValid = false;
+            } else {
+                delete newErrors['jenis_informasi'];
+            }
+
+            if (!data.tujuan.trim()) {
+                newErrors['tujuan'] = 'Tujuan permohonan wajib diisi';
+                allValid = false;
+            } else {
+                delete newErrors['tujuan'];
+            }
+
+            const uraianResult = validateField('uraianInformasi', data.uraian_informasi);
+
+            if (!uraianResult.valid) {
+                newErrors['uraianInformasi'] = uraianResult.message;
+                allValid = false;
+            } else {
+                delete newErrors['uraianInformasi'];
+            }
+        }
+
+        if (currentStep === 3) {
+            // Validasi persetujuan
+            if (!data.setuju_data) {
+                newErrors['setuju_data'] = 'Anda harus menyetujui pernyataan ini';
+                allValid = false;
+            } else {
+                delete newErrors['setuju_data'];
+            }
+
+            if (!data.setuju_dokumen) {
+                newErrors['setuju_dokumen'] = 'Anda harus menyetujui pernyataan ini';
+                allValid = false;
+            } else {
+                delete newErrors['setuju_dokumen'];
+            }
+        }
+
+        setFieldErrors(newErrors);
+
+        return allValid;
     };
 
+    /** Navigasi ke langkah berikutnya dengan validasi */
     const handleNext = () => {
-        if (step < TOTAL_STEPS && validateStep(step)) {
+        if (step < TOTAL_STEPS && validateAllFieldsInStep(step)) {
             setStep(step + 1);
         }
     };
 
+    /** Navigasi ke langkah sebelumnya */
     const handleBack = () => {
         if (step > 1) {
             setStep(step - 1);
         }
     };
 
+    /** Submit form dengan validasi semua langkah terlebih dahulu */
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+
+        // Validasi semua langkah sebelum submit
+        const step1Valid = validateAllFieldsInStep(1);
+        const step2Valid = validateAllFieldsInStep(2);
+        const step3Valid = validateAllFieldsInStep(3);
+
+        if (!step1Valid || !step2Valid || !step3Valid) {
+            // Arahkan ke langkah pertama yang punya error
+            if (!step1Valid) {
+                setStep(1);
+            } else if (!step2Valid) {
+                setStep(2);
+            }
+
+            return;
+        }
+
         trackEvent('form_interaction', 'submit_permohonan', 'attempt');
 
         post('/permohonan', {
             onSuccess: (page) => {
                 const response = page.props as Record<string, unknown>;
                 const tiket = (response.data as Record<string, string>)?.tiket_no ?? '';
+
                 setTiketNo(tiket);
                 setSubmitted(true);
+                setFieldErrors({});
                 trackEvent('form_interaction', 'submit_permohonan', 'success', { ticket_id: tiket });
             },
-            onError: () => {
+            onError: (responseErrors) => {
                 trackEvent('form_interaction', 'submit_permohonan', 'error');
+                // Tracking error API jika bukan error validasi biasa (422)
+                if (Object.keys(responseErrors).length === 0) {
+                    trackEvent('error', 'api_error', '/permohonan');
+                }
+                // Server 422 errors ditampilkan otomatis melalui getFieldError()
+                // karena useForm.errors diupdate oleh Inertia
             },
         });
     };
 
-    /** Halaman sukses */
+    /** Halaman sukses setelah permohonan berhasil dikirim */
     if (submitted) {
         return (
             <>
@@ -120,7 +318,7 @@ export default function PermohonanCreate() {
         );
     }
 
-    /** Label langkah */
+    /** Label dan ikon langkah */
     const stepLabels = [
         { icon: User, label: 'Data Pemohon' },
         { icon: FileText, label: 'Detail Informasi' },
@@ -141,7 +339,7 @@ export default function PermohonanCreate() {
                     Kembali ke Beranda
                 </a>
 
-                {/* Progress bar */}
+                {/* Progress bar menggunakan komponen ProgressBar */}
                 <div className="mb-8">
                     <div className="flex items-center justify-between">
                         {stepLabels.map((s, i) => {
@@ -177,16 +375,14 @@ export default function PermohonanCreate() {
                             );
                         })}
                     </div>
-                    {/* Garis progress */}
-                    <div className="relative mt-2 h-1.5 rounded-full bg-gray-200">
-                        <div
-                            className="absolute left-0 top-0 h-full rounded-full bg-hijau transition-all duration-300"
-                            style={{ width: `${((step - 1) / (TOTAL_STEPS - 1)) * 100}%` }}
-                        />
-                    </div>
-                    <p className="mt-2 text-center text-sm text-gray-500">
-                        Langkah {step} dari {TOTAL_STEPS}
-                    </p>
+
+                    {/* Komponen ProgressBar menggantikan garis progress manual */}
+                    <ProgressBar
+                        currentStep={step}
+                        totalSteps={TOTAL_STEPS}
+                        labels={STEP_LABELS}
+                        className="mt-2"
+                    />
                 </div>
 
                 {/* Form */}
@@ -197,7 +393,7 @@ export default function PermohonanCreate() {
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <form onSubmit={handleSubmit}>
+                        <form onSubmit={handleSubmit} noValidate>
                             {/* Langkah 1: Data Pemohon */}
                             {step === 1 && (
                                 <div className="space-y-4">
@@ -207,79 +403,106 @@ export default function PermohonanCreate() {
                                     </h3>
 
                                     <div className="grid gap-4 sm:grid-cols-2">
+                                        {/* Field NIK */}
                                         <div className="sm:col-span-2">
                                             <Label htmlFor="nik">NIK *</Label>
                                             <Input
                                                 id="nik"
                                                 value={data.nik}
                                                 onChange={(e) => setData('nik', e.target.value.replace(/\D/g, '').slice(0, 16))}
+                                                onBlur={() => handleBlur('nik', data.nik)}
                                                 placeholder="16 digit NIK"
                                                 maxLength={16}
-                                                className={errors.nik ? 'border-orange animate-shake' : ''}
+                                                aria-describedby={hasError('nik') ? 'nik-error' : undefined}
+                                                aria-invalid={hasError('nik') || undefined}
+                                                className={hasError('nik') ? 'border-orange animate-shake' : ''}
                                             />
-                                            <InputError message={errors.nik} />
+                                            <InputError id="nik-error" message={getFieldError('nik')} />
                                             <p className="mt-1 text-xs text-gray-400">Masukkan 16 digit NIK sesuai KTP</p>
                                         </div>
 
+                                        {/* Field Nama Lengkap */}
                                         <div className="sm:col-span-2">
                                             <Label htmlFor="nama_lengkap">Nama Lengkap *</Label>
                                             <Input
                                                 id="nama_lengkap"
                                                 value={data.nama_lengkap}
                                                 onChange={(e) => setData('nama_lengkap', e.target.value)}
+                                                onBlur={() => handleBlur('namaLengkap', data.nama_lengkap)}
                                                 placeholder="Nama lengkap sesuai KTP"
-                                                className={errors.nama_lengkap ? 'border-orange animate-shake' : ''}
+                                                aria-describedby={(hasError('namaLengkap') || hasError('nama_lengkap')) ? 'nama_lengkap-error' : undefined}
+                                                aria-invalid={(hasError('namaLengkap') || hasError('nama_lengkap')) || undefined}
+                                                className={(hasError('namaLengkap') || hasError('nama_lengkap')) ? 'border-orange animate-shake' : ''}
                                             />
-                                            <InputError message={errors.nama_lengkap} />
+                                            <InputError id="nama_lengkap-error" message={getFieldError('namaLengkap') || getFieldError('nama_lengkap')} />
                                         </div>
 
+                                        {/* Field Alamat */}
                                         <div className="sm:col-span-2">
                                             <Label htmlFor="alamat">Alamat *</Label>
                                             <Input
                                                 id="alamat"
                                                 value={data.alamat}
                                                 onChange={(e) => setData('alamat', e.target.value)}
+                                                onBlur={() => handleRequiredBlur('alamat', data.alamat, 'Alamat wajib diisi')}
                                                 placeholder="Jl. Merdeka No. 45, RT 02"
-                                                className={errors.alamat ? 'border-orange animate-shake' : ''}
+                                                aria-describedby={hasError('alamat') ? 'alamat-error' : undefined}
+                                                aria-invalid={hasError('alamat') || undefined}
+                                                className={hasError('alamat') ? 'border-orange animate-shake' : ''}
                                             />
-                                            <InputError message={errors.alamat} />
+                                            <InputError id="alamat-error" message={getFieldError('alamat')} />
                                         </div>
 
+                                        {/* Field Kota */}
                                         <div>
                                             <Label htmlFor="kota">Kota/Kabupaten *</Label>
                                             <Input
                                                 id="kota"
                                                 value={data.kota}
                                                 onChange={(e) => setData('kota', e.target.value)}
+                                                onBlur={() => handleRequiredBlur('kota', data.kota, 'Kota/Kabupaten wajib diisi')}
                                                 placeholder="Penajam Paser Utara"
+                                                aria-describedby={hasError('kota') ? 'kota-error' : undefined}
+                                                aria-invalid={hasError('kota') || undefined}
+                                                className={hasError('kota') ? 'border-orange animate-shake' : ''}
                                             />
-                                            <InputError message={errors.kota} />
+                                            <InputError id="kota-error" message={getFieldError('kota')} />
                                         </div>
 
+                                        {/* Field Provinsi */}
                                         <div>
                                             <Label htmlFor="provinsi">Provinsi *</Label>
                                             <Input
                                                 id="provinsi"
                                                 value={data.provinsi}
                                                 onChange={(e) => setData('provinsi', e.target.value)}
+                                                onBlur={() => handleRequiredBlur('provinsi', data.provinsi, 'Provinsi wajib diisi')}
                                                 placeholder="Kalimantan Timur"
+                                                aria-describedby={hasError('provinsi') ? 'provinsi-error' : undefined}
+                                                aria-invalid={hasError('provinsi') || undefined}
+                                                className={hasError('provinsi') ? 'border-orange animate-shake' : ''}
                                             />
-                                            <InputError message={errors.provinsi} />
+                                            <InputError id="provinsi-error" message={getFieldError('provinsi')} />
                                         </div>
 
+                                        {/* Field No. HP */}
                                         <div>
                                             <Label htmlFor="no_hp">No. HP *</Label>
                                             <Input
                                                 id="no_hp"
                                                 value={data.no_hp}
                                                 onChange={(e) => setData('no_hp', e.target.value.replace(/\D/g, '').slice(0, 13))}
+                                                onBlur={() => handleBlur('noHp', data.no_hp)}
                                                 placeholder="081234567890"
                                                 maxLength={13}
-                                                className={errors.no_hp ? 'border-orange animate-shake' : ''}
+                                                aria-describedby={(hasError('noHp') || hasError('no_hp')) ? 'no_hp-error' : undefined}
+                                                aria-invalid={(hasError('noHp') || hasError('no_hp')) || undefined}
+                                                className={(hasError('noHp') || hasError('no_hp')) ? 'border-orange animate-shake' : ''}
                                             />
-                                            <InputError message={errors.no_hp} />
+                                            <InputError id="no_hp-error" message={getFieldError('noHp') || getFieldError('no_hp')} />
                                         </div>
 
+                                        {/* Field Email */}
                                         <div>
                                             <Label htmlFor="email">Email *</Label>
                                             <Input
@@ -287,23 +510,25 @@ export default function PermohonanCreate() {
                                                 type="email"
                                                 value={data.email}
                                                 onChange={(e) => setData('email', e.target.value)}
+                                                onBlur={() => handleBlur('email', data.email)}
                                                 placeholder="nama@domain.com"
-                                                className={errors.email ? 'border-orange animate-shake' : ''}
+                                                aria-describedby={hasError('email') ? 'email-error' : undefined}
+                                                aria-invalid={hasError('email') || undefined}
+                                                className={hasError('email') ? 'border-orange animate-shake' : ''}
                                             />
-                                            <InputError message={errors.email} />
+                                            <InputError id="email-error" message={getFieldError('email')} />
                                         </div>
 
+                                        {/* Field Upload KTP menggunakan FileUpload */}
                                         <div className="sm:col-span-2">
-                                            <Label htmlFor="ktp_file">Upload KTP (opsional)</Label>
-                                            <Input
+                                            <FileUpload
                                                 id="ktp_file"
-                                                type="file"
+                                                label="Upload KTP (opsional)"
                                                 accept="image/jpeg,image/png"
-                                                onChange={(e) => setData('ktp_file', e.target.files?.[0] ?? null)}
-                                                className="cursor-pointer"
+                                                maxSize={2 * 1024 * 1024}
+                                                onChange={(file) => setData('ktp_file', file)}
+                                                error={getFieldError('ktpFile') || getFieldError('ktp_file')}
                                             />
-                                            <p className="mt-1 text-xs text-gray-400">Format: JPG/PNG, maksimal 2MB</p>
-                                            <InputError message={errors.ktp_file} />
                                         </div>
                                     </div>
                                 </div>
@@ -317,9 +542,10 @@ export default function PermohonanCreate() {
                                         Detail Informasi yang Dimohon
                                     </h3>
 
+                                    {/* Field Jenis Informasi */}
                                     <div>
                                         <Label>Jenis Informasi *</Label>
-                                        <div className="mt-2 space-y-2">
+                                        <div className="mt-2 space-y-2" role="radiogroup" aria-label="Jenis Informasi">
                                             {[
                                                 { value: 'salinan_putusan', label: 'Salinan Putusan' },
                                                 { value: 'laporan_kinerja', label: 'Laporan Kinerja' },
@@ -343,9 +569,10 @@ export default function PermohonanCreate() {
                                                 </label>
                                             ))}
                                         </div>
-                                        <InputError message={errors.jenis_informasi} />
+                                        <InputError id="jenis_informasi-error" message={getFieldError('jenis_informasi')} />
                                     </div>
 
+                                    {/* Field Nomor Perkara (kondisional) */}
                                     {data.jenis_informasi === 'salinan_putusan' && (
                                         <div>
                                             <Label htmlFor="nomor_perkara">Nomor Perkara</Label>
@@ -354,39 +581,49 @@ export default function PermohonanCreate() {
                                                 value={data.nomor_perkara}
                                                 onChange={(e) => setData('nomor_perkara', e.target.value)}
                                                 placeholder="123/Pdt.G/2026/PA.Pjm"
+                                                aria-describedby={hasError('nomor_perkara') ? 'nomor_perkara-error' : undefined}
+                                                aria-invalid={hasError('nomor_perkara') || undefined}
                                             />
-                                            <InputError message={errors.nomor_perkara} />
+                                            <InputError id="nomor_perkara-error" message={getFieldError('nomor_perkara')} />
                                         </div>
                                     )}
 
+                                    {/* Field Tujuan */}
                                     <div>
                                         <Label htmlFor="tujuan">Tujuan Permohonan *</Label>
                                         <Input
                                             id="tujuan"
                                             value={data.tujuan}
                                             onChange={(e) => setData('tujuan', e.target.value)}
+                                            onBlur={() => handleRequiredBlur('tujuan', data.tujuan, 'Tujuan permohonan wajib diisi')}
                                             placeholder="Keperluan banding, penelitian, dll."
-                                            className={errors.tujuan ? 'border-orange animate-shake' : ''}
+                                            aria-describedby={hasError('tujuan') ? 'tujuan-error' : undefined}
+                                            aria-invalid={hasError('tujuan') || undefined}
+                                            className={hasError('tujuan') ? 'border-orange animate-shake' : ''}
                                         />
-                                        <InputError message={errors.tujuan} />
+                                        <InputError id="tujuan-error" message={getFieldError('tujuan')} />
                                     </div>
 
+                                    {/* Field Uraian Informasi */}
                                     <div>
                                         <Label htmlFor="uraian_informasi">Uraian Informasi *</Label>
                                         <textarea
                                             id="uraian_informasi"
                                             value={data.uraian_informasi}
                                             onChange={(e) => setData('uraian_informasi', e.target.value)}
+                                            onBlur={() => handleBlur('uraianInformasi', data.uraian_informasi)}
                                             placeholder="Jelaskan secara detail informasi yang Anda butuhkan..."
                                             rows={4}
+                                            aria-describedby={(hasError('uraianInformasi') || hasError('uraian_informasi')) ? 'uraian_informasi-error' : undefined}
+                                            aria-invalid={(hasError('uraianInformasi') || hasError('uraian_informasi')) || undefined}
                                             className={`border-input w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] ${
-                                                errors.uraian_informasi ? 'border-orange animate-shake' : ''
+                                                (hasError('uraianInformasi') || hasError('uraian_informasi')) ? 'border-orange animate-shake' : ''
                                             }`}
                                         />
                                         <p className="mt-1 text-xs text-gray-400">
                                             Minimal 10 karakter. Saat ini: {data.uraian_informasi.length} karakter
                                         </p>
-                                        <InputError message={errors.uraian_informasi} />
+                                        <InputError id="uraian_informasi-error" message={getFieldError('uraianInformasi') || getFieldError('uraian_informasi')} />
                                     </div>
                                 </div>
                             )}
@@ -399,6 +636,7 @@ export default function PermohonanCreate() {
                                         Persetujuan & Verifikasi
                                     </h3>
 
+                                    {/* Ringkasan data permohonan */}
                                     <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
                                         <h4 className="text-sm font-medium text-gray-700">Ringkasan Permohonan</h4>
                                         <dl className="mt-3 space-y-2 text-sm">
@@ -429,32 +667,61 @@ export default function PermohonanCreate() {
                                         </dl>
                                     </div>
 
+                                    {/* Checkbox persetujuan */}
                                     <div className="space-y-3">
                                         <label className="flex items-start gap-3 text-sm">
                                             <input
                                                 type="checkbox"
                                                 checked={data.setuju_data}
-                                                onChange={(e) => setData('setuju_data', e.target.checked)}
+                                                onChange={(e) => {
+                                                    setData('setuju_data', e.target.checked);
+
+                                                    if (e.target.checked) {
+                                                        setFieldErrors((prev) => {
+                                                            const updated = { ...prev };
+
+                                                            delete updated['setuju_data'];
+
+                                                            return updated;
+                                                        });
+                                                    }
+                                                }}
+                                                aria-describedby={hasError('setuju_data') ? 'setuju_data-error' : undefined}
+                                                aria-invalid={hasError('setuju_data') || undefined}
                                                 className="mt-0.5 h-4 w-4 rounded text-hijau focus:ring-hijau"
                                             />
                                             <span className="text-gray-700">
                                                 Saya menyatakan data ini benar dan siap mematuhi ketentuan PPID.
                                             </span>
                                         </label>
-                                        <InputError message={errors.setuju_data} />
+                                        <InputError id="setuju_data-error" message={getFieldError('setuju_data')} />
 
                                         <label className="flex items-start gap-3 text-sm">
                                             <input
                                                 type="checkbox"
                                                 checked={data.setuju_dokumen}
-                                                onChange={(e) => setData('setuju_dokumen', e.target.checked)}
+                                                onChange={(e) => {
+                                                    setData('setuju_dokumen', e.target.checked);
+
+                                                    if (e.target.checked) {
+                                                        setFieldErrors((prev) => {
+                                                            const updated = { ...prev };
+
+                                                            delete updated['setuju_dokumen'];
+
+                                                            return updated;
+                                                        });
+                                                    }
+                                                }}
+                                                aria-describedby={hasError('setuju_dokumen') ? 'setuju_dokumen-error' : undefined}
+                                                aria-invalid={hasError('setuju_dokumen') || undefined}
                                                 className="mt-0.5 h-4 w-4 rounded text-hijau focus:ring-hijau"
                                             />
                                             <span className="text-gray-700">
                                                 Saya tidak akan menyebarluaskan dokumen tanpa izin.
                                             </span>
                                         </label>
-                                        <InputError message={errors.setuju_dokumen} />
+                                        <InputError id="setuju_dokumen-error" message={getFieldError('setuju_dokumen')} />
                                     </div>
                                 </div>
                             )}
@@ -479,7 +746,6 @@ export default function PermohonanCreate() {
                                     <Button
                                         type="button"
                                         onClick={handleNext}
-                                        disabled={!validateStep(step)}
                                         className="bg-orange text-white hover:bg-orange-light"
                                     >
                                         Selanjutnya
@@ -488,7 +754,7 @@ export default function PermohonanCreate() {
                                 ) : (
                                     <Button
                                         type="submit"
-                                        disabled={processing || !validateStep(step)}
+                                        disabled={processing}
                                         className="bg-orange text-white hover:bg-orange-light"
                                     >
                                         {processing ? (

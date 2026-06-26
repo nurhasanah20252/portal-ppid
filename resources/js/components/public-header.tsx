@@ -48,8 +48,8 @@ return url === '/';
                         </div>
                     </Link>
 
-                    {/* Navigasi desktop */}
-                    <nav className="hidden items-center gap-1 lg:flex">
+                    {/* Navigasi desktop — tampil mulai md (768px ke atas) */}
+                    <nav className="hidden items-center gap-1 md:flex">
                         {navItems.map((item) => (
                             <Link
                                 key={item.href}
@@ -77,10 +77,10 @@ return url === '/';
                             <Search className="h-5 w-5" />
                         </Link>
 
-                        {/* Hamburger mobile */}
+                        {/* Hamburger mobile — tampil di bawah md (< 768px) */}
                         <button
                             type="button"
-                            className="rounded-md p-2 text-white/80 hover:bg-white/10 hover:text-white lg:hidden"
+                            className="rounded-md p-2 text-white/80 hover:bg-white/10 hover:text-white md:hidden"
                             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                             aria-label={mobileMenuOpen ? 'Tutup menu' : 'Buka menu'}
                         >
@@ -90,9 +90,9 @@ return url === '/';
                 </div>
             </div>
 
-            {/* Menu mobile */}
+            {/* Menu mobile — tampil di bawah md (< 768px) */}
             {mobileMenuOpen && (
-                <div className="border-t border-white/10 bg-hijau-dark lg:hidden">
+                <div className="border-t border-white/10 bg-hijau-dark md:hidden">
                     <nav className="space-y-1 px-4 py-3">
                         {navItems.map((item) => (
                             <Link

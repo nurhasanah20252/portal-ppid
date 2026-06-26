@@ -13,12 +13,12 @@ use Illuminate\Support\Str;
 class UserFactory extends Factory
 {
     /**
-     * The current password being used by the factory.
+     * Password yang digunakan factory.
      */
     protected static ?string $password;
 
     /**
-     * Define the model's default state.
+     * Definisi state default model.
      *
      * @return array<string, mixed>
      */
@@ -30,6 +30,8 @@ class UserFactory extends Factory
             'email_verified_at' => now(),
             'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),
+            'role' => 'ppid_staff',
+            'last_login_at' => null,
             'two_factor_secret' => null,
             'two_factor_recovery_codes' => null,
             'two_factor_confirmed_at' => null,
@@ -37,7 +39,27 @@ class UserFactory extends Factory
     }
 
     /**
-     * Indicate that the model's email address should be unverified.
+     * State: user dengan role super_admin.
+     */
+    public function superAdmin(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => 'super_admin',
+        ]);
+    }
+
+    /**
+     * State: user dengan role ppid_staff.
+     */
+    public function ppidStaff(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'role' => 'ppid_staff',
+        ]);
+    }
+
+    /**
+     * State: email belum diverifikasi.
      */
     public function unverified(): static
     {
@@ -47,7 +69,7 @@ class UserFactory extends Factory
     }
 
     /**
-     * Indicate that the model has two-factor authentication configured.
+     * State: user dengan two-factor authentication.
      */
     public function withTwoFactor(): static
     {

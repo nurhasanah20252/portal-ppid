@@ -1,11 +1,17 @@
 import { Head, useForm } from '@inertiajs/react';
 import { ArrowLeft, AlertTriangle, CheckCircle, Send } from 'lucide-react';
 import { useState } from 'react';
+import { toast } from 'sonner';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { trackEvent } from '@/lib/tracking';
+import { validateField } from '@/lib/validation';
+
+/** Tipe untuk menyimpan error validasi client-side per field */
+type FieldErrors = Partial<Record<'permohonan_tiket' | 'nama_pemohon' | 'alasan', string>>;
 
 export default function KeberatanCreate() {
     const { data, setData, post, processing, errors, reset } = useForm({
@@ -15,13 +21,92 @@ export default function KeberatanCreate() {
     });
 
     const [submitted, setSubmitted] = useState(false);
+    const [clientErrors, setClientErrors] = useState<FieldErrors>({});
+
+    /**
+     * Validasi satu field secara client-side.
+     * Mengembalikan true jika valid, false jika tidak.
+     */
+    const validateSingleField = (field: keyof FieldErrors, value: string): boolean => {
+        let errorMessage = '';
+
+        switch (field) {
+            case 'permohonan_tiket':
+                if (!value.trim()) {
+                    errorMessage = 'Nomor tiket permohonan wajib diisi';
+                }
+                break;
+            case 'nama_pemohon':
+                if (!value.trim()) {
+                    errorMessage = 'Nama pemohon wajib diisi';
+                }
+                break;
+            case 'alasan': {
+                // Gunakan rule uraianInformasi (min 10 karakter) dari lib/validation.ts
+                const result = validateField('uraianInformasi', value);
+                if (!value.trim()) {
+                    errorMessage = 'Alasan keberatan wajib diisi';
+                } else if (!result.valid) {
+                    errorMessage = 'Alasan keberatan minimal 10 karakter';
+                }
+                break;
+            }
+        }
+
+        setClientErrors((prev) => ({ ...prev, [field]: errorMessage }));
+        return !errorMessage;
+    };
+
+    /** Handler blur untuk validasi inline */
+    const handleBlur = (field: keyof FieldErrors) => {
+        validateSingleField(field, data[field]);
+    };
+
+    /**
+     * Validasi semua field sebelum submit.
+     * Mengembalikan true jika semua field valid.
+     */
+    const validateAll = (): boolean => {
+        const fields: (keyof FieldErrors)[] = ['permohonan_tiket', 'nama_pemohon', 'alasan'];
+        let allValid = true;
+
+        for (const field of fields) {
+            const valid = validateSingleField(field, data[field]);
+            if (!valid) allValid = false;
+        }
+
+        return allValid;
+    };
+
+    /** Mendapatkan pesan error gabungan (client + server) untuk satu field */
+    const getFieldError = (field: keyof FieldErrors): string | undefined => {
+        return errors[field] || clientErrors[field] || undefined;
+    };
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
 
+        // Cegah submit jika validasi client-side gagal
+        if (!validateAll()) {
+            return;
+        }
+
         post('/keberatan', {
             onSuccess: () => {
                 setSubmitted(true);
+                trackEvent('form_interaction', 'submit_keberatan', 'success');
+                toast.success('Keberatan berhasil dikirim. Petugas akan menghubungi Anda.');
+            },
+            onError: (responseErrors) => {
+                // Error 422 otomatis di-handle oleh Inertia (mengisi `errors`)
+                // Tampilkan toast error untuk memberi tahu pengguna
+                if (Object.keys(responseErrors).length > 0) {
+                    trackEvent('form_interaction', 'submit_keberatan', 'validation_error');
+                    toast.error('Terdapat kesalahan pada data yang Anda kirim. Periksa kembali formulir.');
+                } else {
+                    trackEvent('error', 'api_error', '/keberatan');
+                    toast.error('Terjadi kesalahan pada server. Silakan coba lagi.');
+                }
             },
         });
     };
@@ -48,6 +133,7 @@ export default function KeberatanCreate() {
                                 onClick={() => {
                                     reset();
                                     setSubmitted(false);
+                                    setClientErrors({});
                                 }}
                                 variant="outline"
                                 className="mt-6 border-ungu text-ungu hover:bg-ungu/10"
@@ -94,50 +180,84 @@ export default function KeberatanCreate() {
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <form onSubmit={handleSubmit} className="space-y-4">
+                        <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+                            {/* Field: Nomor Tiket Permohonan */}
                             <div>
                                 <Label htmlFor="permohonan_tiket">Nomor Tiket Permohonan *</Label>
                                 <Input
                                     id="permohonan_tiket"
                                     value={data.permohonan_tiket}
-                                    onChange={(e) => setData('permohonan_tiket', e.target.value)}
+                                    onChange={(e) => {
+                                        setData('permohonan_tiket', e.target.value);
+                                        // Hapus error client saat pengguna mengetik
+                                        if (clientErrors.permohonan_tiket) {
+                                            setClientErrors((prev) => ({ ...prev, permohonan_tiket: '' }));
+                                        }
+                                    }}
+                                    onBlur={() => handleBlur('permohonan_tiket')}
                                     placeholder="PPID-20260609-001"
-                                    required
-                                    className={errors.permohonan_tiket ? 'border-orange animate-shake' : ''}
+                                    aria-describedby={getFieldError('permohonan_tiket') ? 'permohonan_tiket-error' : undefined}
+                                    className={getFieldError('permohonan_tiket') ? 'border-orange animate-shake' : ''}
                                 />
-                                <InputError message={errors.permohonan_tiket} />
+                                <InputError
+                                    id="permohonan_tiket-error"
+                                    message={getFieldError('permohonan_tiket')}
+                                />
                                 <p className="mt-1 text-xs text-gray-400">
                                     Masukkan nomor tiket permohonan yang ingin Anda keberatkan.
                                 </p>
                             </div>
 
+                            {/* Field: Nama Pemohon */}
                             <div>
                                 <Label htmlFor="nama_pemohon">Nama Pemohon *</Label>
                                 <Input
                                     id="nama_pemohon"
                                     value={data.nama_pemohon}
-                                    onChange={(e) => setData('nama_pemohon', e.target.value)}
+                                    onChange={(e) => {
+                                        setData('nama_pemohon', e.target.value);
+                                        if (clientErrors.nama_pemohon) {
+                                            setClientErrors((prev) => ({ ...prev, nama_pemohon: '' }));
+                                        }
+                                    }}
+                                    onBlur={() => handleBlur('nama_pemohon')}
                                     placeholder="Nama lengkap sesuai permohonan"
-                                    required
-                                    className={errors.nama_pemohon ? 'border-orange animate-shake' : ''}
+                                    aria-describedby={getFieldError('nama_pemohon') ? 'nama_pemohon-error' : undefined}
+                                    className={getFieldError('nama_pemohon') ? 'border-orange animate-shake' : ''}
                                 />
-                                <InputError message={errors.nama_pemohon} />
+                                <InputError
+                                    id="nama_pemohon-error"
+                                    message={getFieldError('nama_pemohon')}
+                                />
                             </div>
 
+                            {/* Field: Alasan Keberatan */}
                             <div>
                                 <Label htmlFor="alasan">Alasan Keberatan *</Label>
                                 <textarea
                                     id="alasan"
                                     value={data.alasan}
-                                    onChange={(e) => setData('alasan', e.target.value)}
+                                    onChange={(e) => {
+                                        setData('alasan', e.target.value);
+                                        if (clientErrors.alasan) {
+                                            setClientErrors((prev) => ({ ...prev, alasan: '' }));
+                                        }
+                                    }}
+                                    onBlur={() => handleBlur('alasan')}
                                     placeholder="Jelaskan secara detail alasan keberatan Anda..."
                                     rows={5}
-                                    required
+                                    aria-describedby={getFieldError('alasan') ? 'alasan-error' : undefined}
                                     className={`border-input w-full rounded-md border bg-transparent px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] ${
-                                        errors.alasan ? 'border-orange animate-shake' : ''
+                                        getFieldError('alasan') ? 'border-orange animate-shake' : ''
                                     }`}
                                 />
-                                <InputError message={errors.alasan} />
+                                <p className="mt-1 text-xs text-gray-400">
+                                    Minimal 10 karakter. Saat ini: {data.alasan.length} karakter
+                                </p>
+                                <InputError
+                                    id="alasan-error"
+                                    message={getFieldError('alasan')}
+                                />
                             </div>
 
                             <div className="flex items-center justify-between border-t border-gray-100 pt-6">
